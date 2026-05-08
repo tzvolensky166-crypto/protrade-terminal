@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="sk" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tomáš Zvolenský - ProTrade Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Knižnica pre profesionálne grafy (TradingView Lightweight Charts) -->
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: { colors: { tradeBg: '#0b0e11', tradePanel: '#181a20', tradeBorder: '#2b3139', win: '#0ecb81', loss: '#f6465d' } }
+            }
+        };
+    </script>
+    <style>
+        body { background-color: #0b0e11; color: #EAECEF; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .flash-up { animation: flashG 0.6s ease-out; }
+        .flash-down { animation: flashR 0.6s ease-out; }
+        @keyframes flashG { 0% { color: #0ecb81; } 100% { color: inherit; } }
+        @keyframes flashR { 0% { color: #f6465d; } 100% { color: inherit; } }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background-color: #2b3139; border-radius: 2px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden text-sm">
+
+    <!-- Top Navigation -->
+    <header class="bg-tradePanel h-14 border-b border-tradeBorder flex justify-between items-center px-4 shrink-0">
+        <div class="flex items-center gap-4">
+            <h1 class="text-xl font-bold text-yellow-500 tracking-wider">PRO<span class="text-white">TRADE</span></h1>
+            <div class="h-6 w-px bg-tradeBorder mx-2"></div>
+            <span class="text-gray-400 font-medium">Účet: <span class="text-white">Tomáš Zvolenský</span></span>
+        </div>
+        <div class="flex items-center gap-6">
+            <div class="text-right">
+                <p class="text-xs text-gray-400">Equity (Zostatok + Hodnota pozícií)</p>
+                <p class="text-lg font-bold text-white" id="equityDisplay">0.00 €</p>
+            </div>
+            <div class="text-right pl-4 border-l border-tradeBorder">
+                <p class="text-xs text-gray-400">Dostupná Marža</p>
+                <p class="text-lg font-bold text-yellow-500" id="balanceDisplay">0.00 €</p>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow flex flex-col lg:flex-row p-2 gap-2 overflow-hidden">
+        
+        <!-- Left Panel: Markets -->
+        <div class="w-full lg:w-64 bg-tradePanel rounded border border-tradeBorder flex flex-col shrink-0">
+            <div class="p-3 border-b border-tradeBorder flex justify-between items-center">
+                <h2 class="font-semibold text-gray-200">Trhy</h2>
+            </div>
+            <div id="marketsList" class="overflow-y-auto flex-grow p-2 space-y-1">
+                <!-- Vykresľované cez JS -->
+            </div>
+        </div>
+
+        <!-- Center Panel: Chart & History -->
+        <div class="flex-grow flex flex-col gap-2 min-w-0">
+            <!-- Chart Area -->
+            <div class="flex-grow bg-tradePanel rounded border border-tradeBorder flex flex-col relative">
+                <div class="p-3 border-b border-tradeBorder flex justify-between items-center">
+                    <div class="flex items-center gap-3">
+                        <h2 class="text-xl font-bold" id="chartTitle">BTC/EUR</h2>
+                        <span id="chartPrice" class="text-lg font-mono">...</span>
+                    </div>
+                </div>
+                <div id="tvchart" class="flex-grow w-full"></div>
+            </div>
+
+            <!-- Trade History -->
+            <div class="h-48 bg-tradePanel rounded border border-tradeBorder flex flex-col shrink-0">
+                <div class="p-2 border-b border-tradeBorder">
+                    <h2 class="font-semibold text-gray-200">História transakcií</h2>
+                </div>
+                <div class="overflow-y-auto p-2">
+                    <table class="w-full text-left text-xs">
+                        <thead class="text-gray-500 sticky top-0 bg-tradePanel">
+                            <tr><th>Čas</th><th>Pár</th><th>Typ</th><th>Objem (€)</th><th>Cena</th></tr>
+                        </thead>
+                        <tbody id="historyList" class="font-mono"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Trading & Portfolio -->
+        <div class="w-full lg:w-80 flex flex-col gap-2 shrink-0">
+            <!-- Order Entry -->
+            <div class="bg-tradePanel rounded border border-tradeBorder p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="font-semibold">Otvoriť pozíciu</h2>
+                    <select id="assetSelect" class="bg-tradeBg border border-tradeBorder rounded px-2 py-1 text-sm outline-none focus:border-yellow-500"></select>
+                </div>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-xs text-gray-400 mb-1 block">Suma (EUR)</label>
+                        <div class="flex bg-tradeBg border border-tradeBorder rounded focus-within:border-yellow-500 transition-colors">
+                            <input type="number" id="buyAmount" class="w-full bg-transparent px-3 py-2 outline-none" placeholder="1000">
+                            <span class="py-2 px-3 text-gray-500">EUR</span>
+                        </div>
+                    </div>
+                    
+                    <button onclick="buyAsset()" class="w-full bg-win hover:bg-[#0b9e65] text-white font-bold py-3 rounded transition shadow-lg">KÚPIŤ (LONG)</button>
+                </div>
+            </div>
+
+            <!-- Portfolio -->
+            <div class="flex-grow bg-tradePanel rounded border border-tradeBorder flex flex-col">
+                <div class="p-3 border-b border-tradeBorder flex justify-between items-center">
+                    <h2 class="font-semibold">Otvorené pozície</h2>
+                    <button onclick="resetData()" class="text-xs text-gray-500 hover:text-red-500">Reset</button>
+                </div>
+                <div id="portfolioList" class="overflow-y-auto p-2 space-y-2 flex-grow">
+                    <!-- Vykresľované cez JS -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- DATA & STATE ---
+        const assetsData = {
+            'Krypto': ['BTC', 'ETH', 'SOL'],
+            'Akcie': ['AAPL', 'TSLA', 'NVDA'],
+            'Komodity': ['GOLD']
+        };
+        const basePrices = { AAPL: 165.20, TSLA: 195.50, NVDA: 820.10, GOLD: 2150.00 };
+        
+        let prices = { ...basePrices };
+        let activeChartAsset = 'BTC';
+
+        let state = JSON.parse(localStorage.getItem('proTradeData')) || { 
+            balance: 25000.00, 
+            portfolio: {}, // { BTC: { amount: 0.5, avgPrice: 60000 } }
+            history: [] 
+        };
+
+        const formatMoney = (amount) => new Intl.NumberFormat('sk-SK', { style: 'currency', currency: 'EUR' }).format(amount || 0);
+        
+        function saveData() {
+            localStorage.setItem('proTradeData', JSON.stringify(state));
+            updateUI();
+        }
+
+        function resetData() {
+            if(confirm('Vymazať celú históriu a resetovať zostatok na 25 000€?')) {
+                state = { balance: 25000.00, portfolio: {}, history: [] };
+                saveData();
+            }
+        }
+
+        // --- CHARTING (Lightweight Charts) ---
+        const chartOptions = {
+            layout: { background: { type: 'solid', color: '#181a20' }, textColor: '#848E9C' },
+            grid: { vertLines: { color: '#2b3139' }, horzLines: { color: '#2b3139' } },
+            crosshair: { mode: 0 },
+            timeScale: { timeVisible: true, secondsVisible: false },
+        };
+        const chart = LightweightCharts.createChart(document.getElementById('tvchart'), chartOptions);
+        const candleSeries = chart.addCandlestickSeries({ upColor: '#0ecb81', downColor: '#f6465d', borderVisible: false, wickUpColor: '#0ecb81', wickDownColor: '#f6465d' });
+        
+        let chartData = [];
+        let currentBar = { open: 0, high: 0, low: 0, close: 0, time: 0 };
+
+        function initChartData(price) {
+            chartData = [];
+            let time = Math.floor(Date.now() / 1000) - 3600; // 1 hodina dozadu
+            let lastClose = price * 0.99; // Začíname o 1% nižšie
+            
+            for(let i=0; i<60; i++) {
+                time += 60;
+                let open = lastClose;
+                let close = open + (open * (Math.random() * 0.004 - 0.002));
+                let high = Math.max(open, close) + (open * Math.random() * 0.002);
+                let low = Math.min(open, close) - (open * Math.random() * 0.002);
+                chartData.push({ time, open, high, low, close });
+                lastClose = close;
+            }
+            currentBar = chartData[chartData.length - 1];
+            candleSeries.setData(chartData);
+        }
+
+        function updateChart(price) {
+            const time = Math.floor(Date.now() / 1000);
+            if (time - currentBar.time >= 60) { // Nová minútová sviečka
+                currentBar = { time, open: currentBar.close, high: currentBar.close, low: currentBar.close, close: price };
+            }
+            currentBar.close = price;
+            currentBar.high = Math.max(currentBar.high, price);
+            currentBar.low = Math.min(currentBar.low, price);
+            candleSeries.update(currentBar);
+        }
+
+        function switchChart(asset) {
+            activeChartAsset = asset;
+            document.getElementById('chartTitle').innerText = `${asset}/EUR`;
+            initChartData(prices[asset] || 100);
+            document.getElementById('assetSelect').value = asset;
+        }
+
+        new ResizeObserver(() => { chart.applyOptions({ width: document.getElementById('tvchart').clientWidth, height: document.getElementById('tvchart').clientHeight }); }).observe(document.getElementById('tvchart'));
+
+        // --- TRADING LOGIC ---
+        function addHistory(asset, type, eurAmount, price) {
+            const time = new Date().toLocaleTimeString('sk-SK');
+            state.history.unshift({ time, asset, type, eurAmount, price });
+            if(state.history.length > 50) state.history.pop();
+        }
+
+        function buyAsset() {
+            const asset = document.getElementById('assetSelect').value;
+            const eurAmount = parseFloat(document.getElementById('buyAmount').value);
+            const currentPrice = prices[asset];
+
+            if (eurAmount > 0 && eurAmount <= state.balance && currentPrice > 0) {
+                state.balance -= eurAmount;
+                const amountBought = eurAmount / currentPrice;
+                
+                if (!state.portfolio[asset]) {
+                    state.portfolio[asset] = { amount: amountBought, avgPrice: currentPrice };
+                } else {
+                    const totalEur = (state.portfolio[asset].amount * state.portfolio[asset].avgPrice) + eurAmount;
+                    state.portfolio[asset].amount += amountBought;
+                    state.portfolio[asset].avgPrice = totalEur / state.portfolio[asset].amount;
+                }
+                
+                addHistory(asset, 'BUY', eurAmount, currentPrice);
+                saveData();
+                document.getElementById('buyAmount').value = '';
+            }
+        }
+
+        function sellAsset(asset) {
+            const pos = state.portfolio[asset];
+            const currentPrice = prices[asset];
+            if (pos && pos.amount > 0 && currentPrice > 0) {
+                const valueEur = pos.amount * currentPrice;
+                state.balance += valueEur;
+                addHistory(asset, 'SELL', valueEur, currentPrice);
+                delete state.portfolio[asset];
+                saveData();
+            }
+        }
+
+        // --- UI UPDATES ---
+        function updateUI() {
+            document.getElementById('balanceDisplay').innerText = formatMoney(state.balance);
+            
+            const portDiv = document.getElementById('portfolioList');
+            const histDiv = document.getElementById('historyList');
+            portDiv.innerHTML = '';
+            histDiv.innerHTML = '';
+            
+            let totalEquity = state.balance;
+
+            // Vykreslenie portfólia s P/L
+            for (const [coin, pos] of Object.entries(state.portfolio)) {
+                const currentPrice = prices[coin] || pos.avgPrice;
+                const currentValue = pos.amount * currentPrice;
+                const invested = pos.amount * pos.avgPrice;
+                const pl = currentValue - invested;
+                const plPercent = (pl / invested) * 100;
+                totalEquity += currentValue;
+                
+                const plClass = pl >= 0 ? 'text-win' : 'text-loss';
+                const plSign = pl >= 0 ? '+' : '';
+
+                portDiv.innerHTML += `
+                    <div class="bg-tradeBg p-3 rounded border border-tradeBorder">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="font-bold text-white">${coin}</span>
+                            <span class="text-xs text-gray-400">${pos.amount.toFixed(4)} ks</span>
+                        </div>
+                        <div class="flex justify-between items-end">
+                            <div>
+                                <p class="text-lg font-bold text-white">${formatMoney(currentValue)}</p>
+                                <p class="text-xs ${plClass}">${plSign}${formatMoney(pl)} (${plSign}${plPercent.toFixed(2)}%)</p>
+                            </div>
+                            <button onclick="sellAsset('${coin}')" class="bg-tradePanel border border-tradeBorder hover:border-loss text-loss px-3 py-1 rounded text-xs transition">ZAVRIEŤ</button>
+                        </div>
+                    </div>
+                `;
+            }
+            if(portDiv.innerHTML === '') portDiv.innerHTML = '<p class="text-xs text-gray-500 text-center py-4">Nemáš otvorené žiadne pozície</p>';
+            document.getElementById('equityDisplay').innerText = formatMoney(totalEquity);
+
+            // Vykreslenie histórie
+            state.history.forEach(h => {
+                const color = h.type === 'BUY' ? 'text-win' : 'text-loss';
+                histDiv.innerHTML += `
+                    <tr class="border-b border-tradeBorder/50 hover:bg-tradeBg">
+                        <td class="py-1">${h.time}</td>
+                        <td>${h.asset}</td>
+                        <td class="${color}">${h.type}</td>
+                        <td>${formatMoney(h.eurAmount)}</td>
+                        <td class="text-gray-400">${h.price.toFixed(2)}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        // --- MARKET INITIALIZATION & DATA FEED ---
+        const marketsDiv = document.getElementById('marketsList');
+        const selectDiv = document.getElementById('assetSelect');
+        
+        for (const [category, items] of Object.entries(assetsData)) {
+            marketsDiv.innerHTML += `<div class="text-[10px] text-gray-500 font-bold uppercase mt-2 px-2">${category}</div>`;
+            const optGroup = document.createElement('optgroup');
+            optGroup.label = category;
+            
+            items.forEach(item => {
+                marketsDiv.innerHTML += `
+                    <div onclick="switchChart('${item}')" class="flex justify-between items-center p-2 rounded cursor-pointer hover:bg-tradeBg transition">
+                        <span class="font-bold text-gray-300">${item}</span>
+                        <span id="price-${item}" class="font-mono text-white">---</span>
+                    </div>
+                `;
+                optGroup.innerHTML += `<option value="${item}">${item}</option>`;
+            });
+            selectDiv.appendChild(optGroup);
+        }
+
+        function handleNewPrice(coin, newPrice) {
+            const el = document.getElementById(`price-${coin}`);
+            if(!el) return;
+            
+            if (prices[coin] && prices[coin] !== newPrice) {
+                el.classList.remove('flash-up', 'flash-down');
+                void el.offsetWidth; 
+                if (newPrice > prices[coin]) el.classList.add('flash-up');
+                else el.classList.add('flash-down');
+            }
+            prices[coin] = newPrice;
+            el.innerText = newPrice < 10 ? newPrice.toFixed(4) : newPrice.toFixed(2);
+
+            if(coin === activeChartAsset) {
+                document.getElementById('chartPrice').innerText = el.innerText;
+                updateChart(newPrice);
+            }
+            updateUI();
+        }
+
+        // Live Crypto (Binance WS)
+        assetsData['Krypto'].forEach(coin => {
+            prices[coin] = 0;
+            const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${coin.toLowerCase()}eur@trade`);
+            ws.onmessage = (event) => handleNewPrice(coin, parseFloat(JSON.parse(event.data).p));
+        });
+
+        // Simulator pre Akcie a Komodity
+        function simulateMarket() {
+            ['AAPL', 'TSLA', 'NVDA', 'GOLD'].forEach(asset => {
+                if(!prices[asset]) return;
+                const change = prices[asset] * (Math.random() * 0.001 - 0.0005);
+                handleNewPrice(asset, prices[asset] + change);
+            });
+            setTimeout(simulateMarket, Math.random() * 1500 + 500);
+        }
+
+        // Init
+        setTimeout(() => {
+            ['AAPL', 'TSLA', 'NVDA', 'GOLD'].forEach(a => handleNewPrice(a, prices[a]));
+            switchChart('BTC');
+            simulateMarket();
+        }, 1000);
+
+    </script>
+</body>
+</html>
